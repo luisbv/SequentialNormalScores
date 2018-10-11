@@ -71,8 +71,9 @@
 #     Conover, W. J., Tercero-Gomez, V. G., & Cordero-Franco, A. E. (2017).
 #     The sequential normal scores transformation. Sequential Analysis, 36(3), 397-414.
 
-
+source("NS.r")
 SNS <- function(X, X.id, Y = NULL, theta = NULL, Ftheta = NULL){
+  o.id = unique(X.id)#originalid
   if(is.null(theta) != is.null(Ftheta)){ #in case one is NULL and not the other
     print("ERROR, theta or Ftheta missing")
     return()
@@ -80,35 +81,135 @@ SNS <- function(X, X.id, Y = NULL, theta = NULL, Ftheta = NULL){
     print("ERROR, observations (X) have different length of the observations id (X.id)")
     return()
   }
+  
   #detect the changes in the observation id vector
-  changes.in.X.id = c(1,as.numeric(X.id[1:(length(X.id)-1)] != id[2:(length(X.id))]))
-  X.id = cumsum(changes.in.X.id) # change the observation id
+  changes.in.X.id = c(1,as.numeric(X.id[1:(length(X.id)-1)] != X.id[2:(length(X.id))]))
+  #change the observation id
+  X.id = cumsum(changes.in.X.id) 
   #get the different groups of the id
   groups = unique(X.id)
-  z = rep(NA,length(X)) #preallocate memory to initialize the SNS
+  z = rep(NA,length(groups)) #preallocate memory to initialize the SNS (one for group)
   i = 1    #initialize the group index of the observation id vector
   if(is.null(Y)){ #if there is no reference sample
     Xe = X[which(X.id == 1)] #get the first group
-    z[i] = NS(X = Xe, Y = NULL, theta = theta, Ftheta = Ftheta) #calculate the normal score
+    ns = NS(X = Xe, Y = NULL, theta = theta, Ftheta = Ftheta) #calculate the normal score
+    z[i] = sum(ns)/length(ns) #it is a vector with a subgroup size so it is needed to 
+    #make a mean
+    cat("i =",i," z =",z[i],"\n")
     Y = Xe #the reference sample is the observations of the first group
     i = i + 1
   }
   if(length(groups) > 1){ #if there are more than one group
     Ye = Y   #initialize the previous information to evaluate
     while(i <= length(groups)){ #repeat until the total groups are analized
-      Xe = X[which(sample.id == groups[i])]  #get the observations to evalute from the positions
-      z[i] = NS(X = Xe, Y = Ye, theta = theta, Ftheta = Ftheta) #calculate the normal score
-      Ye = c(Ye, Xe) #add to reference sample the just evaluated observations
+      Xe = X[which(X.id == groups[i])]  #get the observations to evalute from the positions
+      ns = NS(X = Xe, Y = Ye, theta = theta, Ftheta = Ftheta) #calculate the normal score
+      z[i] = sum(ns)/length(ns) #it is a vector with a subgroup size so it is needed to 
+                                      #make a mean
+      n = length(Xe) #number of observations in the subgroup
+      cat("i =",i," z =",z[i],"\n")
+      if(z[i] < 3/sqrt(n) && z[i] > -3/sqrt(n)){#if the subgroup is in control
+        Ye = c(Ye, Xe) #add to reference sample the just evaluated observations
+      }
       i = i + 1 #continue with the next group
     }
   }
+  
+  UCL = 3/sqrt(n)
+  LCL = -UCL
+  par(mar = c(6,6,4,2))
+
+  difMaxZ = abs(max(z) - UCL)
+  difMinZ = abs(min(z) - LCL)
+  
+  ymax = UCL
+  if(difMaxZ > difMinZ){
+    ymax = ymax + difMaxZ
+  }else{
+    ymax = ymax + difMinZ
+  }
+  ymin = - ymax
+  print(o.id)
+  plot(o.id, z, pch=19, ylim=c(ymin, ymax), xlab = "Sample",ylab="Mean SNS",cex.lab=2.5, cex.axis=1.5, cex=2)
+  lines(o.id, z, lt=2, lwd=3)
+  
+  change = 1
+  if(o.id[1] > o.id[length(o.id)]){
+    change = -1
+  }
+  
+  lines(c(o.id[1]-10*change,o.id,o.id[length(o.id)]+10*change), rep(UCL,length(groups)+2),lt=4, lwd=3)
+  lines(c(o.id[1]-10*change,o.id,o.id[length(o.id)]+10*change), rep(LCL,length(groups)+2),lt=4, lwd=3)
+  
   return(z) # return the sequential normal score
 }
 
 
+d = read.csv("nonnormal.csv", sep=";", header=TRUE)
+d = d[,-1]
+
+
 Y = NULL
-X = c(30, 35, 45)
-theta = NULL
-Ftheta = NULL
-X.id = c("a", "b")
-SNS(X=X, X.id=X.id, Y = Y, theta = theta, Ftheta = Ftheta)
+Y.id = NULL
+n = 15
+remove_out = c(6)
+
+for (r in 1:n){
+  if (!(r %in% remove_out)){
+    subgroup = as.numeric(d[r,])
+    Y = c(Y, subgroup)
+    for(i in 1:length(subgroup)){
+      Y.id = c(Y.id, r)
+    }
+  }
+}
+
+X = NULL
+X.id = NULL
+
+remove_out = c()#c(2, 4, 6)
+for (r in (n+1):nrow(d)){#nrow(d)){
+  if ( !(r %in% remove_out)){#c(2,4, 6)) ){
+    subgroup = as.numeric(d[r,])
+    X = c(X, subgroup)
+    for(i in 1:length(subgroup)){
+      X.id = c(X.id, r)
+    }
+  }
+}
+#Y = NULL
+X = Y
+X.id = Y.id
+
+reverse = TRUE
+
+if (reverse){
+  X = rev(X)
+  #X.id = rev(X.id)
+}
+
+
+theta = 350#median(Y)#
+Ftheta = 0.5#0.5#
+#X = c(Y, X)
+#X.id = c(Y.id, X.id)
+Y = NULL
+
+z = SNS(X=X, X.id=X.id, Y = Y, theta = theta, Ftheta = Ftheta)
+
+
+#primeros 15 subgrupos
+#despues de iniciar empezar a monitorear con las ultimas 7, para efectos ilustrativos
+
+#primeros 15 muestra referencia
+# como tenemos datos en retrospectiva, se repite el analisis en inverso
+# se detectan las observaciones atipicas, por conveniencia. asumimos que estos puntos atipicos tienen causas asignables y se remueven
+# mostrar grafica ya removidos
+# se vuelve a coorrer en el orden original para ver si no se afectaron estos cambios.
+# se valida que se tiene una muestra en control que se peude usar como referencia
+# se prodece a monitorear las muestrar restantes una por una
+
+#se puede aprovechar el algoritmo
+# en la practica la cuestion de borrarlos, primer hay que ver si es por alguna causa asignable
+#antes de borrarlo
+
